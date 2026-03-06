@@ -49,10 +49,12 @@ app.add_middleware(
 from routers.orders     import router as orders_router
 from routers.appraisers import router as appraisers_router
 from routers.auth       import router as auth_router
+from routers.admin      import router as admin_router
 
 app.include_router(orders_router)
 app.include_router(appraisers_router)
 app.include_router(auth_router)
+app.include_router(admin_router)
 
 
 # ── Health check ─────────────────────────────────────────────────────────────
