@@ -124,16 +124,19 @@ async def get_order_detail(order_id: str, x_appraiser_token: str = Header(None))
 
 # ── GET /appraisers/orders/{id}/download-draft ────────────────────────────────
 @router.get("/orders/{order_id}/download-draft")
+@router.get("/orders/{order_id}/download")
 async def download_draft(order_id: str, x_appraiser_token: str = Header(None)):
     appraiser = verify_appraiser(x_appraiser_token)
     db = get_db()
 
-    appraisal = db.table("appraisals") \
+    appraisal_result = db.table("appraisals") \
         .select("draft_docx_path") \
         .eq("order_id", order_id) \
-        .single().execute().data
+        .execute().data
+    appraisal = appraisal_result[0] if appraisal_result else None
 
-    order = db.table("orders").select("assigned_appraiser_id").eq("id", order_id).single().execute().data
+    order_result = db.table("orders").select("assigned_appraiser_id").eq("id", order_id).execute().data
+    order = order_result[0] if order_result else None
     if not order or order.get("assigned_appraiser_id") != appraiser["id"]:
         raise HTTPException(403, "Not your order")
 
@@ -311,4 +314,5 @@ async def request_revision(
     }).execute()
 
     return {"status": "revision", "message": "Order flagged for revision."}
+
 
