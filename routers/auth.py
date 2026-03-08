@@ -56,7 +56,7 @@ async def appraiser_login(payload: AppraiserLoginRequest):
     # Verify this user is an appraiser in our users table
     db = get_db()
     db_result = db.table("users").select("*").eq("id", user_id).execute().data
-        db_user = db_result[0] if db_result else None
+    db_user = db_result[0] if db_result else None
     if not db_user:
         # First login — insert the user record linked to Supabase Auth
         db_user = db.table("users").upsert({
@@ -150,3 +150,4 @@ async def get_me(x_appraiser_token: str = Header(None)):
             "certified": status_counts.get("certified", 0) + status_counts.get("delivered", 0),
         }
     }
+
