@@ -78,16 +78,24 @@ async def get_order_detail(order_id: str, x_appraiser_token: str = Header(None))
     appraiser = verify_appraiser(x_appraiser_token)
     db = get_db()
 
-    order = db.table("orders") \
+    result = db.table("orders") \
         .select("*, appraisals(*)") \
         .eq("id", order_id) \
         .eq("assigned_appraiser_id", appraiser["id"]) \
-        .single().execute().data
+        .execute().data
 
-    if not order:
+    if not result:
         raise HTTPException(404, "Order not found or not assigned to you")
+    order = result[0]
 
-    appraisal = (order.get("appraisals") or [{}])[0] if order.get("appraisals") else {}
+    # Handle appraisals being a list or single dict from Supabase join
+    raw_appraisals = order.get("appraisals")
+    if isinstance(raw_appraisals, dict):
+        appraisal = raw_appraisals
+    elif isinstance(raw_appraisals, list) and raw_appraisals:
+        appraisal = raw_appraisals[0]
+    else:
+        appraisal = {}
 
     # Generate signed URLs
     draft_url = get_signed_url(appraisal.get("draft_docx_path"), 3600) if appraisal.get("draft_docx_path") else None
@@ -303,3 +311,4 @@ async def request_revision(
     }).execute()
 
     return {"status": "revision", "message": "Order flagged for revision."}
+
