@@ -134,3 +134,32 @@ async def list_all_orders(x_admin_key: str = Header(None)):
         "id, order_number, property_address, status, service_level, assigned_appraiser_id, created_at"
     ).order("created_at", desc=True).limit(20).execute()
     return {"orders": orders.data}
+
+
+
+# ── POST /admin/assign-all-orders — Bulk-assign unassigned orders to first appraiser ────
+@router.post("/assign-all-orders")
+async def assign_all_orders(x_admin_key: str = Header(None)):
+    """Assigns all orders that lack an appraiser to the first available appraiser.
+    Safe to call multiple times — only updates unassigned orders. Owner use only."""
+    verify_admin(x_admin_key)
+    db = get_db()
+
+    # Find first appraiser
+    appraiser_res = db.table("users").select("id, full_name").eq("role", "appraiser").limit(1).execute()
+    if not appraiser_res.data:
+        raise HTTPException(404, "No appraiser users found in the database")
+    appraiser = appraiser_res.data[0]
+
+    # Update all orders with no assigned_appraiser_id
+    result = db.table("orders") \
+        .update({"assigned_appraiser_id": appraiser["id"]}) \
+        .is_("assigned_appraiser_id", "null") \
+        .execute()
+
+    updated_count = len(result.data) if result.data else 0
+    return {
+        "message": f"Assigned {updated_count} orders to {appraiser['full_name']}",
+        "appraiser_id": appraiser["id"],
+        "updated_count": updated_count,
+    }
