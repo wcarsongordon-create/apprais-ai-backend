@@ -9,6 +9,7 @@ import json
 import os
 import time
 import logging
+from typing import Optional, List
 from anthropic import Anthropic
 
 logger = logging.getLogger(__name__)
@@ -144,10 +145,42 @@ Return a JSON object with EXACTLY this structure (fill in all fields):
 }}"""
 
 
+
+def _build_document_section(document_texts: list) -> str:
+    """Build the client-documents block appended to the research prompt."""
+    if not document_texts:
+        return ""
+    lines = [
+        "\n\n## CLIENT-PROVIDED DOCUMENTS",
+        "The following financial documents were uploaded by the client.",
+        "Use this actual data to inform the Income Approach: NOI, vacancy,",
+        "operating expenses, cap rates, and income/expense summaries.",
+        "Where actual figures are available, prefer them over market estimates.\n",
+    ]
+    income_docs  = [d for d in document_texts if d.get("doc_type") == "income"]
+    expense_docs = [d for d in document_texts if d.get("doc_type") == "expenses"]
+    other_docs   = [d for d in document_texts if d.get("doc_type") not in ("income", "expenses")]
+
+    def _add_group(title, docs):
+        if not docs:
+            return
+        lines.append(f"### {title}")
+        for doc in docs:
+            lines.append(f"\n--- {doc['filename']} ---")
+            lines.append(doc.get("text", "[no text extracted]"))
+
+    _add_group("Income Statements & Leases", income_docs)
+    _add_group("Expense Documents", expense_docs)
+    _add_group("Other Documents", other_docs)
+    return "\n".join(lines)
+
+
+
 async def research_property(
     address: str, city: str, state: str, zip_code: str,
     property_type: str, purpose: str,
-    estimated_value: str = "", gba: str = "", year_built: str = ""
+    estimated_value: str = "", gba: str = "", year_built: str = "",
+    document_texts: Optional[list] = None
 ) -> dict:
     """
     Call Claude to research a property and return structured JSON data
@@ -160,6 +193,8 @@ async def research_property(
         address, city, state, zip_code, property_type,
         purpose, estimated_value, gba, year_built
     )
+    if document_texts:
+        prompt += _build_document_section(document_texts)
 
     response = client.messages.create(
         model="claude-opus-4-5-20251101",
@@ -279,3 +314,4 @@ def extract_generation_params(research_data: dict) -> dict:
         highest_best_use_vacant   = n.get("hbu_vacant", ""),
         highest_best_use_improved = n.get("hbu_improved", ""),
     )
+
