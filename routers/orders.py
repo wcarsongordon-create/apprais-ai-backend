@@ -9,14 +9,16 @@ POST /orders/webhook  — Stripe payment webhook
 import os
 import logging
 import asyncio
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, UploadFile, File
+from typing import List, Optional
 from supabase import create_client
 
 import stripe
 from models.schemas import OrderCreate, OrderResponse, OrderStatusResponse, SERVICE_PRICES
 from services.claude_service import research_property, extract_generation_params
 from services.generator import generate_report
-from services.storage import upload_report
+from services.storage import upload_report, upload_order_document, download_file_bytes
+from services.document_extractor import extract_text_from_bytes
 from services.email import send_order_confirmation, send_appraiser_notification
 
 logger = logging.getLogger(__name__)
@@ -187,6 +189,46 @@ async def get_order_status(order_id: str):
     )
 
 
+
+# ── POST /orders/{order_id}/documents — Upload client documents ────────────────────
+@router.post("/{order_id}/documents")
+async def upload_order_documents(
+    order_id: str,
+    doc_type: str = "general",
+    files: List[UploadFile] = File(...),
+):
+    """
+    Upload income statements, lease documents, expense reports, etc.
+    for an existing order. Call this right after order creation,
+    before AI generation completes.
+    doc_type: 'income', 'expenses', or 'general'
+    """
+    db = get_db()
+    order_res = db.table("orders").select("id").eq("id", order_id).execute()
+    if not order_res.data:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    uploaded = []
+    for file in files:
+        file_bytes = await file.read()
+        storage_path = await upload_order_document(
+            file_bytes=file_bytes,
+            filename=file.filename,
+            order_id=order_id,
+            doc_type=doc_type,
+        )
+        db.table("order_documents").insert({
+            "order_id": order_id,
+            "filename": file.filename,
+            "storage_path": storage_path,
+            "doc_type": doc_type,
+            "file_size_bytes": len(file_bytes),
+        }).execute()
+        uploaded.append({"filename": file.filename, "storage_path": storage_path})
+
+    return {"uploaded": uploaded, "count": len(uploaded)}
+
+
 # ── Background task: run Claude research + generate .docx ────────────────────
 async def run_ai_generation(order_id: str, order: dict):
     db = get_db()
@@ -199,7 +241,26 @@ async def run_ai_generation(order_id: str, order: dict):
             "description": "Claude AI research and report generation initiated"
         }).execute()
 
-        # Parse city/state/zip from combined field
+        # ── Fetch client-uploaded documents and extract text ──────────────────────
+        document_texts = []
+        try:
+            docs_res = db.table("order_documents").select("*").eq("order_id", order_id).execute()
+            for doc in (docs_res.data or []):
+                try:
+                    file_bytes = await download_file_bytes(doc["storage_path"])
+                    text = extract_text_from_bytes(file_bytes, doc["filename"])
+                    document_texts.append({
+                        "filename": doc["filename"],
+                        "doc_type": doc.get("doc_type", "general"),
+                        "text": text,
+                    })
+                    logger.info(f"Extracted text from {doc['filename']} ({len(text)} chars)")
+                except Exception as doc_err:
+                    logger.warning(f"Could not process document {doc['filename']}: {doc_err}")
+        except Exception as e:
+            logger.warning(f"Could not load order documents for {order_id}: {e}")
+
+                # Parse city/state/zip from combined field
         city_state_zip = order.get("city_state_zip", "")
         parts = city_state_zip.rsplit(",", 1)
         city = parts[0].strip() if parts else city_state_zip
@@ -216,7 +277,8 @@ async def run_ai_generation(order_id: str, order: dict):
             purpose=order.get("purpose", "general valuation"),
             estimated_value=order.get("estimated_value", ""),
             gba=order.get("gba", ""),
-            year_built=order.get("year_built", ""),
+            year_built=order.get("year_built", ""),,
+            document_texts=document_texts if document_texts else None,
         )
 
         # Save research data
@@ -295,3 +357,4 @@ async def run_ai_generation(order_id: str, order: dict):
             "order_id": order_id, "event_type": "ai_generation_failed",
             "description": str(e)
         }).execute()
+
