@@ -1,5 +1,3 @@
-"""
-AppraisAI — Admin / Testing Router
 =====================================
 POST /admin/test-order  — Create a demo order with custom property details
                           and trigger AI generation without Stripe payment.
@@ -67,8 +65,6 @@ async def create_test_order(
     expense_files: List[UploadFile] = File(default=[]),
 ):
     verify_admin(x_admin_key)
-    if body is None:
-        body = DemoOrderBody()
     db = get_db()
     user_res = db.table("users").upsert(
         {"email": client_email, "full_name": client_name,
@@ -144,4 +140,5 @@ async def assign_all_orders(x_admin_key: str = Header(None)):
     updated_count = len(result.data) if result.data else 0
     return {"message": f"Assigned {updated_count} orders to appraiser",
             "appraiser_id": appraiser_id, "updated_count": updated_count}
+
 
