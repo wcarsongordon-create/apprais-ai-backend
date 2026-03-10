@@ -12,7 +12,6 @@ import asyncio
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, UploadFile, File
 from typing import List, Optional
 from supabase import create_client
-
 import stripe
 from models.schemas import OrderCreate, OrderResponse, OrderStatusResponse, SERVICE_PRICES
 from services.claude_service import research_property, extract_generation_params
@@ -277,7 +276,7 @@ async def run_ai_generation(order_id: str, order: dict):
             purpose=order.get("purpose", "general valuation"),
             estimated_value=order.get("estimated_value", ""),
             gba=order.get("gba", ""),
-            year_built=order.get("year_built", ""),,
+            year_built=order.get("year_built", ""),
             document_texts=document_texts if document_texts else None,
         )
 
@@ -357,4 +356,5 @@ async def run_ai_generation(order_id: str, order: dict):
             "order_id": order_id, "event_type": "ai_generation_failed",
             "description": str(e)
         }).execute()
+
 
